@@ -3,12 +3,20 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { placeLabels } from "./labelLayout";
 import type { LabelAnchor } from "./labelLayout";
+import { createGameWorld } from "./GameWorld";
+import type { GameView, PlayerTelemetry } from "./GameWorld";
+import { currentObjective } from "./game";
+import type { GameEvent } from "./game";
 import { createWorldContext } from "./worldContext";
 import type { WorldState } from "./worldContext";
 import type { Glyph, SystemModel, SystemRoute } from "./systemModels";
 
 export type CameraMode = "orbit" | "follow" | "top";
 interface Props {
+  game: GameView;
+  onGameEvent: (event: GameEvent) => void;
+  onGameTelemetry: (data: PlayerTelemetry) => void;
+  onGameNavigate: (node: string) => void;
   scale: WorldState["scale"];
   load: WorldState["load"];
   issue?: string;
@@ -620,6 +628,42 @@ export default function ImmersiveScene(props: Props) {
   live.current = props;
   const [fallback, setFallback] = useState(false);
 
+  // The same simulation also drives the accessible sector map without WebGL.
+  useEffect(() => {
+    if (!fallback) return;
+    const scene = new THREE.Scene(),
+      camera = new THREE.PerspectiveCamera();
+    camera.position.set(7, 10, 12);
+    camera.lookAt(0, 0, 0);
+    const world = createGameWorld(scene, camera, props.model, {
+      get: () => live.current.game,
+      event: (event) => live.current.onGameEvent(event),
+      telemetry: (data) => live.current.onGameTelemetry(data),
+    });
+    let frame = 0,
+      previous = performance.now();
+    const update = (now: number) => {
+      frame = requestAnimationFrame(update);
+      if (!document.hidden)
+        world.update(Math.min((now - previous) / 1000, 0.05));
+      previous = now;
+    };
+    frame = requestAnimationFrame(update);
+    return () => {
+      cancelAnimationFrame(frame);
+      world.dispose();
+      scene.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        mesh.geometry?.dispose();
+        if (mesh.material)
+          (Array.isArray(mesh.material)
+            ? mesh.material
+            : [mesh.material]
+          ).forEach((m) => m.dispose());
+      });
+    };
+  }, [fallback, props.model.id]);
+
   useEffect(() => {
     const element = host.current!;
     let renderer: THREE.WebGLRenderer;
@@ -814,6 +858,14 @@ export default function ImmersiveScene(props: Props) {
       return { def, index, mat, line, curve, particles, particleMat };
     });
     const context = createWorldContext(scene, nodes, props.model.accent);
+    const gameWorld = createGameWorld(scene, camera, props.model, {
+      get: () => live.current.game,
+      event: (event) => live.current.onGameEvent(event),
+      telemetry: (data) => live.current.onGameTelemetry(data),
+    });
+    let contextLost = false,
+      previousReset = props.resetKey,
+      previousRun = -1;
     let width = 0,
       height = 0,
       inView = true,
@@ -902,7 +954,19 @@ export default function ImmersiveScene(props: Props) {
     const pointerUp = (e: PointerEvent) => {
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) {
         const hit = pick(e);
-        if (hit?.nodeId) live.current.onSelect(hit.nodeId);
+        if (live.current.game.state.status !== "idle") {
+          if (hit?.nodeId) live.current.onGameNavigate(hit.nodeId);
+          else {
+            const floorPoint = new THREE.Vector3();
+            if (
+              ray.ray.intersectPlane(
+                new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.15),
+                floorPoint,
+              )
+            )
+              gameWorld.navigateWorld({ x: floorPoint.x, z: floorPoint.z });
+          }
+        } else if (hit?.nodeId) live.current.onSelect(hit.nodeId);
         else if (hit?.flowKey) {
           const route = allRoutes.find((r) => routeKey(r) === hit.flowKey);
           if (route) live.current.onFlowSelect(route);
@@ -911,6 +975,8 @@ export default function ImmersiveScene(props: Props) {
     };
     const lost = (e: Event) => {
       e.preventDefault();
+      contextLost = true;
+      gameWorld.dispose();
       setFallback(true);
     };
     renderer.domElement.addEventListener("pointerdown", pointerDown);
@@ -933,9 +999,24 @@ export default function ImmersiveScene(props: Props) {
       frame = requestAnimationFrame(animate);
       const dt = Math.min((now - previous) / 1000, 0.05);
       previous = now;
-      if (!inView || document.hidden) return;
+      if (!inView || document.hidden || contextLost) return;
       const state = live.current;
       const phase = state.model.phases[state.phase];
+      const gamePresent = state.game.state.status !== "idle";
+      const objective = currentObjective(state.game.state);
+      const gameFrame = gameWorld.update(dt);
+      if (gameFrame.dirty) dirty = true;
+      if (previousReset !== state.resetKey) {
+        previousReset = state.resetKey;
+        camera.position.copy(overview);
+        controls.target.set(0, 1, 0);
+        lastInteraction = now;
+        dirty = true;
+      }
+      if (previousRun !== state.game.state.run) {
+        previousRun = state.game.state.run;
+        lastInteraction = -10000;
+      }
       if (
         state.cameraMode !== previousCameraMode ||
         (state.selected !== previousSelection && state.cameraMode === "follow")
@@ -943,10 +1024,16 @@ export default function ImmersiveScene(props: Props) {
         lastInteraction = -10000;
       previousCameraMode = state.cameraMode;
       previousSelection = state.selected;
-      const key = `${state.phase}:${state.selected}:${state.playing}:${state.exploded}:${state.annotations}:${state.traffic}:${state.fault}:${state.cameraMode}:${state.progress}:${state.scale}:${state.issue}:${JSON.stringify(state.load)}:${state.recovery?.kind}:${state.recovery?.step}`;
+      const key = `${state.phase}:${state.selected}:${state.playing}:${state.exploded}:${state.annotations}:${state.traffic}:${state.fault}:${state.cameraMode}:${state.progress}:${state.scale}:${state.issue}:${JSON.stringify(state.load)}:${state.recovery?.kind}:${state.recovery?.step}:${state.game.state.run}:${state.game.state.status}:${state.game.state.objective}:${state.game.follow}`;
       if (key !== prevKey) {
         dirty = true;
         prevKey = key;
+        renderer.domElement.setAttribute(
+          "aria-label",
+          gamePresent
+            ? `${state.model.name}: playable architecture. Use WASD or arrows to move, E to interact, and Space to pause.`
+            : `${state.model.name}: animated architecture. Use the labeled component buttons to inspect the system.`,
+        );
       }
       if (state.playing) {
         time += dt * state.speed;
@@ -965,7 +1052,9 @@ export default function ImmersiveScene(props: Props) {
         );
         const appear = 1 - Math.pow(1 - enter, 3);
         node.root.scale.setScalar(appear);
-        const active = phase.active.includes(node.def.id),
+        const active =
+            phase.active.includes(node.def.id) ||
+            (gamePresent && objective?.node === node.def.id),
           selected = state.selected === node.def.id,
           failed =
             state.fault &&
@@ -1080,7 +1169,23 @@ export default function ImmersiveScene(props: Props) {
           label.dataset.blocked = String(blocked);
         }
       });
-      if (now - lastInteraction > 5500 && state.cameraMode !== "orbit") {
+      if (gamePresent && state.game.follow && now - lastInteraction > 1400) {
+        center.copy(gameFrame.position);
+        center.y = 0.8;
+        const desired = center.clone().add(new THREE.Vector3(7, 10, 12));
+        if (
+          camera.position.distanceTo(desired) > 0.015 ||
+          controls.target.distanceTo(center) > 0.015
+        ) {
+          camera.position.lerp(desired, 1 - Math.exp(-dt * 2.5));
+          controls.target.lerp(center, 1 - Math.exp(-dt * 3));
+          dirty = true;
+        }
+      } else if (
+        !gamePresent &&
+        now - lastInteraction > 5500 &&
+        state.cameraMode !== "orbit"
+      ) {
         center.set(0, 1, 0);
         if (state.cameraMode === "follow") {
           center.set(0, 0, 0);
@@ -1124,7 +1229,8 @@ export default function ImmersiveScene(props: Props) {
         time,
       );
       const targetZoom =
-        state.selected && state.cameraMode === "follow"
+        (gamePresent && state.game.follow) ||
+        (state.selected && state.cameraMode === "follow")
           ? 1
           : Math.min(
               1,
@@ -1179,7 +1285,9 @@ export default function ImmersiveScene(props: Props) {
         nodes.forEach((node) => {
           point.copy(node.root.position).add(new THREE.Vector3(0, 3.2, 0));
           const selected = state.selected === node.def.id,
-            active = phase.active.includes(node.def.id);
+            active =
+              phase.active.includes(node.def.id) ||
+              (gamePresent && objective?.node === node.def.id);
           collectLabel(
             `node-${node.def.id}`,
             annotations.current[node.def.id],
@@ -1196,14 +1304,14 @@ export default function ImmersiveScene(props: Props) {
             flowLabels.current[routeKey(path.def)],
             point,
             2,
-            activeRoutes.has(routeKey(path.def)),
+            !gamePresent && activeRoutes.has(routeKey(path.def)),
           );
         });
         for (const placed of placeLabels(anchors, {
           width,
           height,
-          top: 64,
-          bottom: 126,
+          top: gamePresent ? 152 : 64,
+          bottom: gamePresent ? 110 : 126,
           margin: 10,
         })) {
           const item = labelElements.get(placed.id)!;
@@ -1247,11 +1355,12 @@ export default function ImmersiveScene(props: Props) {
       cameraPose.current = {
         position: camera.position.clone(),
         target: controls.target.clone(),
-        reset: props.resetKey,
+        reset: live.current.resetKey,
       };
       cancelAnimationFrame(frame);
       observer.disconnect();
       visible.disconnect();
+      gameWorld.dispose();
       controls.dispose();
       renderer.domElement.removeEventListener("pointerdown", pointerDown);
       renderer.domElement.removeEventListener("pointermove", pointerMove);
@@ -1280,7 +1389,7 @@ export default function ImmersiveScene(props: Props) {
       renderer.forceContextLoss();
       renderer.domElement.remove();
     };
-  }, [props.model.id, props.resetKey]);
+  }, [props.model.id]);
 
   return (
     <div
@@ -1333,8 +1442,16 @@ export default function ImmersiveScene(props: Props) {
               node.id,
             )}
             data-failed={props.fault && props.model.fault.node === node.id}
-            onClick={() => props.onSelect(node.id)}
-            aria-label={`Inspect ${node.label}`}
+            data-game-target={
+              props.game.state.status !== "idle" &&
+              currentObjective(props.game.state)?.node === node.id
+            }
+            onClick={() =>
+              props.game.state.status !== "idle"
+                ? props.onGameNavigate(node.id)
+                : props.onSelect(node.id)
+            }
+            aria-label={`${props.game.state.status !== "idle" ? "Walk to" : "Inspect"} ${node.label}`}
             aria-pressed={props.selected === node.id}
           >
             <span className="fusion-node-index">
@@ -1377,8 +1494,9 @@ export default function ImmersiveScene(props: Props) {
       )}
       {fallback && (
         <p className="fusion-fallback-message">
-          3D is unavailable in this browser. The labeled architecture and
-          complete stage walkthrough remain interactive.
+          {props.game.state.status !== "idle"
+            ? "3D is unavailable. Sector-map mode keeps movement, collisions and missions playable. Use the direction pad or Walk to beacon."
+            : "3D is unavailable in this browser. The labeled architecture and complete stage walkthrough remain interactive."}
         </p>
       )}
     </div>

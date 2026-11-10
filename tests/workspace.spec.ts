@@ -9,6 +9,10 @@ test.beforeEach(async ({ page }) => {
   errors.set(page, list);
   page.on("pageerror", (e) => list.push(e.message));
   await page.goto("/");
+  await page
+    .getByRole("button", { name: "Open Inspector tool", exact: true })
+    .click();
+
   await expect(page.locator(".fusion-webgl")).toBeVisible();
 });
 test.afterEach(async ({ page }) => expect(errors.get(page)).toEqual([]));
@@ -278,6 +282,9 @@ test("mobile tools are contextual sheets over the same world, including repeat h
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await page
+    .getByRole("button", { name: "Close scene inspector", exact: true })
+    .click();
   const original = await page.locator(".fusion-webgl").elementHandle();
   await expect(
     page.getByRole("complementary", { name: "Contextual scene inspector" }),

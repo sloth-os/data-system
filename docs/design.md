@@ -4,6 +4,12 @@ DATA / SCALE has one application surface and one WebGL scene. The user changes
 questions through contextual tools while preserving the operation, camera,
 workload and selected architecture. There is no page router or separate viewer.
 
+Packet Runner makes the same architecture playable: a controllable field
+engineer moves between components, carries records and solves station decisions
+across twelve contracts. The game controller adds objects to the existing scene,
+while mission control occupies the existing inspector. Research pauses a moving
+mission. See `game-design.md` for campaign, progression and capacity constraints.
+
 ## Shared context
 
 `ImmersiveLab` owns the system family, operation stage, playback, component or

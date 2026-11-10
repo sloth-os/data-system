@@ -17,6 +17,7 @@ import {
   EyeOff,
   FileJson,
   Focus,
+  Gamepad2,
   GitFork,
   KeyRound,
   Layers3,
@@ -55,6 +56,24 @@ import {
 import type { RecoveryDrill, WorkspaceTool } from "./workspace";
 import "./immersive.css";
 import "./workspace.css";
+import "./game.css";
+import GamePanel from "./GamePanel";
+import GameHUD from "./GameHUD";
+import {
+  campaignKey,
+  currentObjective,
+  idleGame,
+  isGameActive,
+  missionFor,
+  parseCampaign,
+  recordVictory,
+  reduceGame,
+  startGame,
+} from "./game";
+import type { GameEvent, GameState, Campaign } from "./game";
+import { initialPlayer } from "./GameWorld";
+import type { PlayerTelemetry, GameView } from "./GameWorld";
+import { playGameTone } from "./gameAudio";
 
 const icons = {
   relational: Database,
@@ -85,6 +104,7 @@ const packetNames: Record<SystemId, string> = {
   spatial: "Bounds / geometry",
 };
 const tools = [
+  { id: "game", label: "Mission", icon: Gamepad2 },
   { id: "story", label: "Inspector", icon: Focus },
   { id: "scale", label: "Scale", icon: Cpu },
   { id: "paths", label: "Data paths", icon: Network },
@@ -95,6 +115,7 @@ const tools = [
   { id: "sources", label: "Sources", icon: BookOpen },
 ] as const;
 const titles: Record<WorkspaceTool, string> = {
+  game: "Mission control",
   story: "Operation inspector",
   scale: "Scale context",
   paths: "Data paths",
@@ -124,6 +145,34 @@ export default function ImmersiveLab({
   onTool,
   toolRequest,
 }: Props) {
+  const [game, setGame] = useState<GameState>(idleGame);
+  const [player, setPlayer] = useState<PlayerTelemetry>(initialPlayer);
+  const [stored] = useState(() => {
+    try {
+      return {
+        campaign: parseCampaign(localStorage.getItem(campaignKey)),
+        saved: true,
+      };
+    } catch {
+      return { campaign: {} as Campaign, saved: false };
+    }
+  });
+  const [campaign, setCampaign] = useState<Campaign>(stored.campaign);
+  const [campaignSaved, setCampaignSaved] = useState(stored.saved);
+  const [sound, setSound] = useState(false);
+  const [followEngineer, setFollowEngineer] = useState(true);
+  const [navigation, setNavigation] = useState<GameView["navigation"]>(null);
+  const [touch, setTouch] = useState({ forward: 0, right: 0, boost: false });
+  const navigationSerial = useRef(0),
+    runSerial = useRef(0);
+  const explorePreferences = useRef<{
+    annotations: boolean;
+    cameraMode: CameraMode;
+    exploded: boolean;
+  } | null>(null);
+  const previousGame = useRef<GameState>(idleGame);
+  const campaignRef = useRef(campaign);
+  campaignRef.current = campaign;
   const [system, setSystem] = useState<SystemId>("relational");
   const [sequence, setSequence] = useState({ index: 0, progress: 0 });
   const [selected, setSelected] = useState<string | null>(null);
@@ -153,9 +202,14 @@ export default function ImmersiveLab({
   const model = findSystem(system),
     phase = model.phases[sequence.index];
   const node = selected ? model.nodes.find((n) => n.id === selected) : null;
-  const locked = drill.status === "running";
+  const gamePresent = game.status !== "idle",
+    gameActive = isGameActive(game),
+    gameObjective = currentObjective(game);
+  const capacityUnlocked = gameActive && !!gameObjective?.capacity;
+  const drillRunning = drill.status === "running";
+  const locked = drillRunning || gamePresent;
   const faultPhase =
-    locked && recoveryScenarios[drill.scenario].id === "corruption"
+    drillRunning && recoveryScenarios[drill.scenario].id === "corruption"
       ? 0
       : Math.max(
           0,
@@ -170,7 +224,7 @@ export default function ImmersiveLab({
     scenario = recoveryScenarios[drill.scenario];
 
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || gamePresent) return;
     const timer = window.setInterval(() => {
       if (!document.hidden)
         setSequence((current) =>
@@ -183,7 +237,15 @@ export default function ImmersiveLab({
         );
     }, 100);
     return () => window.clearInterval(timer);
-  }, [playing, speed, system, fault, faultPhase, model.phases.length]);
+  }, [
+    playing,
+    speed,
+    system,
+    fault,
+    faultPhase,
+    model.phases.length,
+    gamePresent,
+  ]);
   useEffect(() => {
     const fn = () => setFullscreen(document.fullscreenElement === root.current);
     document.addEventListener("fullscreenchange", fn);
@@ -196,7 +258,21 @@ export default function ImmersiveLab({
   useEffect(() => {
     if (tool !== "story" || toolRequest > 0) setMobileOpen(true);
   }, [tool, toolRequest]);
+  useEffect(() => {
+    if (tool !== "game")
+      setGame((g) =>
+        g.status === "playing" ? reduceGame(g, { type: "pause" }) : g,
+      );
+  }, [tool, toolRequest]);
+  useEffect(() => {
+    if (game.status === "terminal") {
+      onTool("game");
+      setMobileOpen(true);
+    }
+  }, [game.status, onTool]);
   function openTool(next: WorkspaceTool) {
+    if (game.status === "playing" && next !== "game")
+      setGame((g) => reduceGame(g, { type: "pause" }));
     onTool(next);
     setMobileOpen(true);
   }
@@ -215,6 +291,7 @@ export default function ImmersiveLab({
     setStatus("");
   }
   function go(index: number) {
+    if (gamePresent) return;
     if (fault && index > faultPhase) return;
     setSequence({ index, progress: 0 });
     setSelected(null);
@@ -222,12 +299,20 @@ export default function ImmersiveLab({
     onPlaying(false);
   }
   function selectNode(id: string) {
+    if (gamePresent) {
+      navigateEngineer(id);
+      return;
+    }
     setSelected(id);
     setFlow(null);
     onPlaying(false);
     openTool("story");
   }
   function selectFlow(route: SystemRoute) {
+    if (gamePresent) {
+      openTool("story");
+      return;
+    }
     setFlow(route);
     setSelected(null);
     onPlaying(false);
@@ -245,6 +330,10 @@ export default function ImmersiveLab({
         );
   }
   function injectFault() {
+    if (gamePresent) {
+      openTool("game");
+      return;
+    }
     if (!fault) {
       setSequence({ index: faultPhase, progress: 0 });
       setSelected(null);
@@ -280,6 +369,7 @@ export default function ImmersiveLab({
     setIssue(id);
   }
   function startDrill() {
+    if (gamePresent) return;
     setIssue(null);
     setFault(true);
     setSelected(null);
@@ -300,6 +390,7 @@ export default function ImmersiveLab({
       setLoad((l) => ({ ...l, records: 1e11, bytesPerRecord: 100000 }));
   }
   function nextDrill() {
+    if (!drillRunning || gamePresent) return;
     if (drill.step + 1 >= scenario.steps.length) {
       setDrill((d) => ({
         ...d,
@@ -314,10 +405,149 @@ export default function ImmersiveLab({
     setDrill((d) => ({ ...d, status: "idle", step: 0 }));
   }
 
+  useEffect(() => {
+    if (game.status !== "won") return;
+    const next = recordVictory(campaignRef.current, game);
+    campaignRef.current = next;
+    setCampaign(next);
+    try {
+      localStorage.setItem(campaignKey, JSON.stringify(next));
+      setCampaignSaved(true);
+    } catch {
+      setCampaignSaved(false);
+    }
+  }, [game.status, game.run]);
+  useEffect(() => {
+    if (gamePresent && game.mission) {
+      const objective = currentObjective(game)!;
+      setSequence({
+        index: objective.phase,
+        progress: Math.min(
+          0.95,
+          game.objective / missionFor(game.mission).objectives.length,
+        ),
+      });
+    }
+    if (game.status !== "playing")
+      setTouch({ forward: 0, right: 0, boost: false });
+    const prev = previousGame.current;
+    if (game.status === "playing" && prev.status === "terminal")
+      setMobileOpen(false);
+    if (sound && game.run === prev.run) {
+      if (game.score > prev.score)
+        playGameTone(game.status === "won" ? "win" : "success");
+      else if (game.mistakes > prev.mistakes || game.hits > prev.hits)
+        playGameTone("wrong");
+    }
+    previousGame.current = game;
+  }, [
+    game.status,
+    game.objective,
+    game.run,
+    game.score,
+    game.mistakes,
+    game.hits,
+    sound,
+    gamePresent,
+    game.mission,
+  ]);
+  function sendGame(event: GameEvent) {
+    setGame((g) => reduceGame(g, event));
+  }
+  function launchMission(id: SystemId) {
+    if (drillRunning) {
+      setStatus(
+        "Finish or reset the recovery drill before launching a contract.",
+      );
+      return;
+    }
+    if (!explorePreferences.current)
+      explorePreferences.current = { annotations, cameraMode, exploded };
+    const mission = missionFor(id);
+    setSystem(id);
+    setProject(null);
+    setSelected(null);
+    setFlow(null);
+    setFault(false);
+    setIssue(mission.issue || null);
+    setScale(mission.scale);
+    setLoad(
+      id === "lakehouse"
+        ? {
+            ...initialLoad,
+            records: 1e11,
+            bytesPerRecord: 100000,
+            nodes: 16,
+            linkGbps: 10,
+            skew: 0.5,
+          }
+        : { ...initialLoad },
+    );
+    setAnnotations(false);
+    setExploded(false);
+    setCameraMode("orbit");
+    setFollowEngineer(true);
+    setPlayer(initialPlayer);
+    setNavigation(null);
+    setTouch({ forward: 0, right: 0, boost: false });
+    setSequence({ index: mission.objectives[0].phase, progress: 0 });
+    setGame(startGame(id, ++runSerial.current));
+    onPlaying(true);
+    onTool("game");
+    setMobileOpen(false);
+    setStatus("");
+    if (sound) playGameTone("start");
+    requestAnimationFrame(() =>
+      root.current
+        ?.querySelector<HTMLCanvasElement>(".fusion-webgl")
+        ?.focus({ preventScroll: true }),
+    );
+  }
+  function quitMission() {
+    setGame((g) => reduceGame(g, { type: "quit" }));
+    setIssue(null);
+    setNavigation(null);
+    setTouch({ forward: 0, right: 0, boost: false });
+    onPlaying(false);
+    if (explorePreferences.current) {
+      setAnnotations(explorePreferences.current.annotations);
+      setExploded(explorePreferences.current.exploded);
+      setCameraMode(explorePreferences.current.cameraMode);
+      explorePreferences.current = null;
+    }
+    onTool("game");
+    setMobileOpen(true);
+  }
+  function navigateEngineer(id?: string) {
+    if (game.status === "paused") sendGame({ type: "resume" });
+    if (game.status === "terminal") sendGame({ type: "close" });
+    if (!gameActive) return;
+    const node = id || gameObjective?.node;
+    if (node) setNavigation({ serial: ++navigationSerial.current, node });
+  }
+  function interactEngineer() {
+    sendGame({
+      type: "interact",
+      node: player.near || "",
+      distance: player.distance,
+    });
+    openTool("game");
+  }
+  function answerGame(choice: string) {
+    sendGame({ type: "answer", choice, load: effectiveLoad });
+  }
+  const gameView: GameView = {
+    state: game,
+    follow: followEngineer,
+    navigation,
+    touch,
+  };
+
   return (
     <section
       ref={root}
-      className="fusion-lab unified-workspace"
+      className={`fusion-lab unified-workspace ${gamePresent ? "game-present" : ""}`}
+      data-game-present={gamePresent}
       style={{ "--system-accent": model.accent } as CSSProperties}
       aria-label="Immersive systems workspace"
     >
@@ -422,7 +652,7 @@ export default function ImmersiveLab({
                 aria-pressed={tool === t.id}
                 data-active={
                   (t.id === "issues" && !!issue) ||
-                  (t.id === "recovery" && locked)
+                  (t.id === "recovery" && drillRunning)
                 }
                 onClick={() => openTool(t.id)}
                 title={t.label}
@@ -433,11 +663,31 @@ export default function ImmersiveLab({
             ))}
           </nav>
           <div className="fusion-viewport">
+            <GameHUD
+              state={game}
+              player={player}
+              model={model}
+              sound={sound}
+              follow={followEngineer}
+              onSound={() => {
+                setSound((v) => !v);
+                if (!sound) playGameTone("start");
+              }}
+              onFollow={() => setFollowEngineer((v) => !v)}
+              onControl={() => openTool("game")}
+              onPause={() => sendGame({ type: "pause" })}
+              onResume={() => sendGame({ type: "resume" })}
+              onWalk={() => navigateEngineer()}
+              onInteract={interactEngineer}
+              onTouch={(forward, right, boost) =>
+                setTouch({ forward, right, boost })
+              }
+            />
             <ImmersiveScene
               model={model}
               phase={sequence.index}
               progress={sequence.progress}
-              playing={playing}
+              playing={playing && (!gamePresent || game.status === "playing")}
               speed={speed}
               selected={selected}
               onSelect={selectNode}
@@ -448,11 +698,15 @@ export default function ImmersiveLab({
               fault={fault}
               cameraMode={cameraMode}
               resetKey={resetKey}
+              game={gameView}
+              onGameEvent={sendGame}
+              onGameTelemetry={setPlayer}
+              onGameNavigate={navigateEngineer}
               scale={scale}
               load={effectiveLoad}
               issue={issue || undefined}
               recovery={
-                locked
+                drillRunning
                   ? {
                       kind: scenario.id,
                       step: drill.step,
@@ -480,7 +734,7 @@ export default function ImmersiveLab({
                 CHALLENGE · {activeIssue?.title}
               </button>
             )}
-            {locked && (
+            {drillRunning && (
               <div className="workspace-active-drill">
                 RECOVERY RUNBOOK · {drill.step + 1} / {scenario.steps.length}
               </div>
@@ -639,14 +893,22 @@ export default function ImmersiveLab({
                   )}
                   <button
                     className={`fusion-fault-button ${fault ? "active" : ""}`}
-                    onClick={locked ? () => openTool("recovery") : injectFault}
+                    onClick={
+                      gamePresent
+                        ? () => openTool("game")
+                        : drillRunning
+                          ? () => openTool("recovery")
+                          : injectFault
+                    }
                   >
                     {fault ? <RotateCcw size={14} /> : <Zap size={14} />}
-                    {locked
-                      ? "Continue the recovery drill"
-                      : fault
-                        ? "Restore the healthy path"
-                        : model.fault.label}
+                    {gamePresent
+                      ? "Return to mission"
+                      : drillRunning
+                        ? "Continue the recovery drill"
+                        : fault
+                          ? "Restore the healthy path"
+                          : model.fault.label}
                     <span>{fault ? "RESET" : "WHAT IF?"}</span>
                   </button>
 
@@ -679,8 +941,35 @@ export default function ImmersiveLab({
                     </a>
                   </details>
                 </div>
+              ) : tool === "game" ? (
+                <GamePanel
+                  blocked={drillRunning}
+                  state={game}
+                  campaign={campaign}
+                  saved={campaignSaved}
+                  player={player}
+                  model={model}
+                  load={effectiveLoad}
+                  onStart={launchMission}
+                  onWalk={() => navigateEngineer()}
+                  onInteract={interactEngineer}
+                  onAnswer={answerGame}
+                  onPause={() => sendGame({ type: "pause" })}
+                  onResume={() => {
+                    sendGame({ type: "resume" });
+                    setMobileOpen(false);
+                  }}
+                  onQuit={quitMission}
+                  onClose={() => {
+                    sendGame({ type: "close" });
+                    setMobileOpen(false);
+                  }}
+                  onCapacity={() => openTool("capacity")}
+                />
               ) : (
                 <WorkspacePanel
+                  gameLocked={gamePresent}
+                  capacityUnlocked={capacityUnlocked}
                   search={projectSearch}
                   onSearch={setProjectSearch}
                   category={projectCategory}
@@ -691,11 +980,13 @@ export default function ImmersiveLab({
                   phase={sequence.index}
                   scale={scale}
                   onScale={(s) => {
-                    if (!locked) setScale(s);
+                    if (!drillRunning && (!gamePresent || capacityUnlocked))
+                      setScale(s);
                   }}
                   load={effectiveLoad}
                   onLoad={(patch) => {
-                    if (!locked) setLoad((l) => ({ ...l, ...patch }));
+                    if (!drillRunning && (!gamePresent || capacityUnlocked))
+                      setLoad((l) => ({ ...l, ...patch }));
                   }}
                   onPhase={go}
                   onJourney={chooseJourney}
@@ -742,7 +1033,7 @@ export default function ImmersiveLab({
             </button>
             <button
               aria-label="Previous immersive stage"
-              disabled={sequence.index === 0}
+              disabled={gamePresent || sequence.index === 0}
               onClick={() => go(sequence.index - 1)}
             >
               <ChevronLeft size={17} />
@@ -750,7 +1041,9 @@ export default function ImmersiveLab({
             <button
               aria-label="Next immersive stage"
               disabled={
-                sequence.index === 4 || (fault && sequence.index >= faultPhase)
+                gamePresent ||
+                sequence.index === 4 ||
+                (fault && sequence.index >= faultPhase)
               }
               onClick={() => go(sequence.index + 1)}
             >
@@ -782,6 +1075,7 @@ export default function ImmersiveLab({
           <div className="fusion-view-controls">
             <button
               aria-label="Explode architecture"
+              disabled={gamePresent}
               aria-pressed={exploded}
               className={exploded ? "is-active" : ""}
               onClick={() => setExploded(!exploded)}
@@ -830,7 +1124,7 @@ export default function ImmersiveLab({
             <button
               key={step.title}
               aria-label={`Stage ${i + 1}: ${step.title}`}
-              disabled={fault && i > faultPhase}
+              disabled={gamePresent || (fault && i > faultPhase)}
               aria-current={sequence.index === i ? "step" : undefined}
               className={sequence.index === i ? "current" : ""}
               onClick={() => go(i)}

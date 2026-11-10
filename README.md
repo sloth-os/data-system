@@ -1,8 +1,20 @@
 # DATA / SCALE
 
-One immersive 3D workspace for understanding data-intensive systems from CPU and memory to multi-cloud deployments, up to 100 billion records and 10 PB. It is a static React/TypeScript/Three.js website with no backend or required credentials.
+One immersive 3D workspace and playable systems-engineering game, from CPU and memory to multi-cloud deployments, up to 100 billion records and 10 PB. It is a static React/TypeScript/Three.js website with no backend or required credentials.
 
 Choose one of 12 system families and follow its operation through five stages. The component inspector, scale, data-path, capacity, project, challenge, recovery and source tools all operate beside the same scene. Opening a tool preserves the camera, current operation and workload. There are no separate application pages or additional 3D viewers.
+
+## Play Packet Runner
+
+Launch a contract from **Mission control** or **Play missions**. Pilot a 3D field engineer through the existing architecture, carry a record between stations, and solve engineering decisions. Twelve contracts include 62 objectives covering all twelve data-system families. The 10 PB contract requires tuning the actual capacity model to satisfy storage, durability, worker and I/O bounds.
+
+- **WASD / arrows:** move relative to the camera; **Shift:** boost; **E:** interact near a station; **Space / Escape:** pause or resume.
+- Click the floor or a component to walk there. **Walk to beacon** finds a collision-aware route to the current objective. The golden ring and sector map show your destination.
+- Avoid moving red rogue packets; green repair chips restore training integrity and budget. Console reading and research tools pause the contract clock.
+- Correct engineering actions progress the mission; mistakes cost resources and provide feedback. Failed runs can be retried. Completed contracts award stars and XP; each contract's best result is saved on the device without repeat XP farming.
+- Mobile offers a direction pad, navigation assist and station buttons. Without WebGL, the sector map runs the same movement, collision and mission rules.
+
+Budgets, hazards, integrity, stars and contract seconds are fictional game mechanics. They do not represent measured production reliability or performance. See [game design](docs/game-design.md) for the campaign and interaction rules.
 
 ## Explore the workspace
 
@@ -31,7 +43,7 @@ npm run test:unit
 npm run build
 ```
 
-Browser tests use real WebGL, verify that contextual tools preserve the canvas/camera, and exercise all 60 stages, scale lenses, capacity inputs, project search, challenges, recovery gating, fallback, fullscreen and mobile tools:
+Browser tests use real WebGL, verify that contextual tools preserve the canvas/camera, and exercise all 60 stages, scale lenses, capacity inputs, project search, challenges, recovery gating, fallback, fullscreen and mobile tools. Game checks cover physical movement, a completed transaction mission, saved progress, failure/retry, the 10 PB contract, mobile controls and sector-map navigation:
 
 ```sh
 npx playwright install chromium
@@ -46,6 +58,9 @@ Production files are generated in `dist/`. Use `npm run preview -- --host 0.0.0.
 - `src/ImmersiveLab.tsx`: shared operation, selection, scale, workload, project, challenge and recovery state.
 - `src/ImmersiveScene.tsx`: the single WebGL renderer and architecture-specific geometry.
 - `src/worldContext.ts`: deployment envelopes, capacity markers and challenge/recovery effects in that same scene.
+- `src/game.ts`: twelve contracts, objective decisions, deterministic game rules and campaign records.
+- `src/GameWorld.ts`, `src/navigation.ts`: the 3D engineer, collision-aware A\* navigation, hazards, pickups and mission telemetry.
+- `src/GameHUD.tsx`, `src/GamePanel.tsx`: in-world controls, sector map, mission consoles and campaign progress.
 - `src/WorkspacePanel.tsx`: contextual tools sharing the lab's state.
 - `src/systemModels.ts`: twelve component graphs and sixty operation stages.
 - `src/content.ts`: scale lessons, data representations, project profiles, challenges, recovery runbooks and references.

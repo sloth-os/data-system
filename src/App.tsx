@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   BookOpen,
   Github,
+  Gamepad2,
   Layers3,
   Sparkles,
 } from "lucide-react";
@@ -10,7 +11,7 @@ import ImmersiveLab from "./ImmersiveLab";
 import type { WorkspaceTool } from "./workspace";
 
 export default function App() {
-  const [tool, setTool] = useState<WorkspaceTool>("story");
+  const [tool, setTool] = useState<WorkspaceTool>("game");
   const [toolRequest, setToolRequest] = useState(0);
   function openTool(next: WorkspaceTool) {
     setTool(next);
@@ -22,6 +23,12 @@ export default function App() {
   const [speed, setSpeed] = useState(1);
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
+      if (
+        document
+          .querySelector(".unified-workspace")
+          ?.getAttribute("data-game-present") === "true"
+      )
+        return;
       if (
         event.code === "Space" &&
         (event.target === document.body ||
@@ -59,6 +66,13 @@ export default function App() {
           <span>12 architectures · up to 100B records / 10 PB</span>
         </div>
         <div className="workspace-header-actions">
+          <button
+            className="workspace-play-game"
+            onClick={() => openTool("game")}
+          >
+            <Gamepad2 size={17} />
+            <span>Play missions</span>
+          </button>
           <button onClick={() => openTool("guide")}>
             <Sparkles size={16} />
             <span>Explore the world</span>

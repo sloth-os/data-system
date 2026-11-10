@@ -27,6 +27,8 @@ import type { RecoveryDrill, WorkspaceTool } from "./workspace";
 import { journeyContexts } from "./workspace";
 
 interface Props {
+  gameLocked: boolean;
+  capacityUnlocked: boolean;
   search: string;
   category: string;
   onSearch: (value: string) => void;
@@ -61,7 +63,10 @@ const Link = ({ url, children }: { url: string; children: ReactNode }) => (
 
 export default function WorkspacePanel(p: Props) {
   const { search, category } = p;
-  const locked = p.recovery.status === "running";
+  const drillRunning = p.recovery.status === "running";
+  const locked = drillRunning || p.gameLocked;
+  const capacityLocked =
+    p.recovery.status === "running" || (p.gameLocked && !p.capacityUnlocked);
   const level = levels.find((l) => l.id === p.scale)!;
   const result = capacityModel(p.load);
   const chosen = projects.find((project) => project.id === p.project);
@@ -176,7 +181,9 @@ export default function WorkspacePanel(p: Props) {
           {p.model.phases.map((phase, i) => (
             <button
               key={phase.title}
-              disabled={p.blockedAt !== null && i > p.blockedAt}
+              disabled={
+                p.gameLocked || (p.blockedAt !== null && i > p.blockedAt)
+              }
               aria-current={p.phase === i ? "step" : undefined}
               onClick={() => p.onPhase(i)}
             >
@@ -250,7 +257,7 @@ export default function WorkspacePanel(p: Props) {
           Worker markers, replica rings and the data-volume stack respond in the
           same scene. Packet speed remains illustrative.
         </p>
-        <fieldset disabled={locked}>
+        <fieldset disabled={capacityLocked}>
           <label>
             Records
             <strong>
@@ -589,7 +596,7 @@ export default function WorkspacePanel(p: Props) {
         <select
           className="workspace-select"
           aria-label="Recovery scenario"
-          disabled={locked}
+          disabled={drillRunning || p.gameLocked}
           value={p.recovery.scenario}
           onChange={(e) => p.onScenario(+e.target.value)}
         >
@@ -600,6 +607,12 @@ export default function WorkspacePanel(p: Props) {
           ))}
         </select>
         <p>{scenario.summary}</p>
+        {p.gameLocked && (
+          <p className="workspace-note">
+            End the active game run before launching a separate runbook. Mission
+            decisions use their own station objectives.
+          </p>
+        )}
         <div className="workspace-callout">
           <span>RECOVERY POINT TARGET</span>
           <p>{scenario.rpo}</p>
@@ -607,14 +620,18 @@ export default function WorkspacePanel(p: Props) {
           <p>{scenario.rto}</p>
         </div>
         <p className="workspace-drill-status" role="status">
-          {locked
+          {drillRunning
             ? `Drill in progress · step ${p.recovery.step + 1} of ${scenario.steps.length}`
             : p.recovery.status === "complete"
               ? "Drill complete · dependency restored"
               : "Ready · infrastructure is not affected"}
         </p>
-        {!locked && (
-          <button className="workspace-action" onClick={p.onDrillStart}>
+        {!drillRunning && (
+          <button
+            className="workspace-action"
+            disabled={p.gameLocked}
+            onClick={p.onDrillStart}
+          >
             <Zap size={14} />
             {p.recovery.status === "complete"
               ? "Run this drill again"
@@ -625,10 +642,10 @@ export default function WorkspacePanel(p: Props) {
           {scenario.steps.map((step, i) => (
             <li
               className={
-                locked && p.recovery.step === i
+                drillRunning && p.recovery.step === i
                   ? "current"
                   : p.recovery.status === "complete" ||
-                      (locked && p.recovery.step > i)
+                      (drillRunning && p.recovery.step > i)
                     ? "complete"
                     : ""
               }
@@ -636,7 +653,7 @@ export default function WorkspacePanel(p: Props) {
             >
               <span>
                 {p.recovery.status === "complete" ||
-                (locked && p.recovery.step > i) ? (
+                (drillRunning && p.recovery.step > i) ? (
                   <Check size={13} />
                 ) : (
                   String(i + 1).padStart(2, "0")
@@ -649,7 +666,7 @@ export default function WorkspacePanel(p: Props) {
                     ? step.slice(step.indexOf(":") + 1)
                     : step}
                 </p>
-                {locked && p.recovery.step === i && (
+                {drillRunning && p.recovery.step === i && (
                   <button className="workspace-action" onClick={p.onDrillNext}>
                     {i === scenario.steps.length - 1
                       ? "Complete recovery"
@@ -661,7 +678,7 @@ export default function WorkspacePanel(p: Props) {
             </li>
           ))}
         </ol>
-        {locked && (
+        {drillRunning && (
           <button
             className="workspace-action secondary"
             onClick={p.onDrillReset}

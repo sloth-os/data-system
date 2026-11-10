@@ -3,6 +3,7 @@ import type { ModelInput } from "./model";
 import type { SystemId } from "./systemModels";
 
 export type WorkspaceTool =
+  | "game"
   | "story"
   | "scale"
   | "paths"

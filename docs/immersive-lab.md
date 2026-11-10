@@ -5,25 +5,31 @@ contextual tools. A B-tree, table, log, metadata catalog or replica is a logical
 role, not necessarily a separate host. Envelopes and spatial separation explain
 responsibility and scale without asserting a provider's deployment topology.
 
+The Mission tool turns these same components into playable stations. Twelve
+contracts and 62 objectives combine movement, record delivery, engineering
+decisions, collision, hazards and a constrained 10 PB capacity puzzle. Controls,
+rules and accessibility behavior are documented in `game-design.md`. Missions
+drive the existing operation phase and pause when research tools are opened.
+
 ## Operation stories
 
 Each family defines five stages: highlighted components, directed exchanges,
 input/output representations, a correctness boundary and a bottleneck.
 
-| Family | Operation |
-| --- | --- |
-| Relational | Index seek → row version → WAL → synchronous ACK → commit/checkpoint |
-| Document | Describe → route → target shard → indexed update → acknowledgement |
-| Key-value | Hash → memory probe → application-owned miss fetch → refill → async copy |
-| Wide-column/LSM | Partition → log → buffer/ACK → flush → background compaction |
-| Graph | Anchor → expand → remote frontier → filter → bounded result |
-| Vector | Encode → metadata filter → approximate navigation → rerank → top-k |
-| Streaming | Append → consume → keyed window → checkpoint → compatible sink commit |
-| Time-series | Collect → bucket → compress → mergeable rollup → range query |
-| Lakehouse | Resolve snapshot → prune → scan/aggregate → shuffle → merge |
-| Search | Analyze → postings → shard scoring → gather → response |
-| Object | Initiate multipart → transfer → checksum/complete → metadata → range read |
-| Spatial | Normalize → bounds pruning → candidate routing → exact test → return |
+| Family          | Operation                                                                 |
+| --------------- | ------------------------------------------------------------------------- |
+| Relational      | Index seek → row version → WAL → synchronous ACK → commit/checkpoint      |
+| Document        | Describe → route → target shard → indexed update → acknowledgement        |
+| Key-value       | Hash → memory probe → application-owned miss fetch → refill → async copy  |
+| Wide-column/LSM | Partition → log → buffer/ACK → flush → background compaction              |
+| Graph           | Anchor → expand → remote frontier → filter → bounded result               |
+| Vector          | Encode → metadata filter → approximate navigation → rerank → top-k        |
+| Streaming       | Append → consume → keyed window → checkpoint → compatible sink commit     |
+| Time-series     | Collect → bucket → compress → mergeable rollup → range query              |
+| Lakehouse       | Resolve snapshot → prune → scan/aggregate → shuffle → merge               |
+| Search          | Analyze → postings → shard scoring → gather → response                    |
+| Object          | Initiate multipart → transfer → checksum/complete → metadata → range read |
+| Spatial         | Normalize → bounds pruning → candidate routing → exact test → return      |
 
 The vector cloud is a projection, not a faithful map of high-dimensional
 similarity. The spatial SQL example requires PostGIS. Object parts are logical

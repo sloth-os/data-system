@@ -7,6 +7,10 @@ test.beforeEach(async ({ page }) => {
   errors.set(page, list);
   page.on("pageerror", (e) => list.push(e.message));
   await page.goto("/");
+  await page
+    .getByRole("button", { name: "Open Inspector tool", exact: true })
+    .click();
+
   await expect(page.locator(".fusion-stage-heading h2")).toHaveText(
     "Relational database",
   );
@@ -202,6 +206,9 @@ test("keyboard system selection and WebGL fallback preserve every tool", async (
     });
   });
   await page.reload();
+  await page
+    .getByRole("button", { name: "Open Inspector tool", exact: true })
+    .click();
   await expect(page.locator(".fusion-fallback-message")).toContainText(
     "3D is unavailable",
   );

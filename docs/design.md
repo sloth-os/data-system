@@ -14,6 +14,12 @@ illustration; it does not change the quantitative capacity model.
 
 ## Six interconnected views
 
+The default entry point is now an additional **Immersive lab** with 12
+architecture-specific scenes and 60 staged operations. Its dark environment,
+data-structure geometry, projected labels and fused inspector turn the operation
+into an explorable story. It links to the original six views below; see
+[immersive-lab.md](immersive-lab.md) for its full interaction and accuracy contract.
+
 1. **Explore systems** introduces requirements, constraints, techniques and
    processing paths at each scale. Eight data models connect access patterns to
    suitable project profiles.

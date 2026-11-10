@@ -31,6 +31,9 @@ import {
   Zap,
 } from "lucide-react";
 import Scene from "./Scene";
+import ImmersiveLab from "./ImmersiveLab";
+import { dataModelSystem, projectSystem } from "./systemModels";
+import type { SystemId } from "./systemModels";
 import {
   dataTypes,
   issues,
@@ -43,6 +46,7 @@ import type { LevelId } from "./content";
 import { capacityModel, formatBytes, formatDuration } from "./model";
 
 type Section =
+  | "immersive"
   | "explore"
   | "motion"
   | "performance"
@@ -54,6 +58,7 @@ type Overlay = {
   id?: string;
 } | null;
 const nav = [
+  { id: "immersive" as const, label: "Immersive lab", icon: Sparkles },
   { id: "explore" as const, label: "Explore systems", icon: Boxes },
   { id: "motion" as const, label: "Data in motion", icon: Network },
   { id: "performance" as const, label: "Performance lab", icon: Activity },
@@ -260,7 +265,9 @@ function SourceLink({
 }
 
 export default function App() {
-  const [section, setSection] = useState<Section>("explore");
+  const [section, setSection] = useState<Section>("immersive");
+  const [immersiveSystem, setImmersiveSystem] =
+    useState<SystemId>("relational");
   const [level, setLevel] = useState<LevelId>("cluster");
   const [playing, setPlaying] = useState(
     () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -398,6 +405,7 @@ export default function App() {
     ...new Set(projects.map((p) => p.category)),
   ];
   const headings: Record<Section, [string, string, string]> = {
+    immersive: ["IMMERSIVE SYSTEMS LAB", "Step inside", "the data plane."],
     explore: [
       "INTERACTIVE SYSTEMS ATLAS",
       "Small pieces.",
@@ -418,6 +426,8 @@ export default function App() {
     recovery: ["DESIGN FOR FAILURE", "Lose a region.", "Keep your promises."],
   };
   const descriptions: Record<Section, string> = {
+    immersive:
+      "Twelve data systems. Sixty animated stages. Follow a record, inspect the machinery, and see the tradeoffs take shape.",
     explore:
       "An explorable guide to how data-intensive systems grow—from a single CPU to 100 billion records across clouds.",
     motion:
@@ -433,14 +443,16 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${section === "immersive" ? "immersive-mode" : ""}`}
+    >
       <aside className={`sidebar ${menu ? "sidebar-open" : ""}`}>
         <a
           href="#"
           className="brand"
           onClick={(e) => {
             e.preventDefault();
-            navigate("explore");
+            navigate("immersive");
           }}
           aria-label="Data Scale home"
         >
@@ -554,18 +566,38 @@ export default function App() {
               <button
                 className="inline-button"
                 onClick={
-                  section === "explore"
-                    ? () => navigate("performance")
-                    : startTour
+                  section === "immersive"
+                    ? () => navigate("explore")
+                    : section === "explore"
+                      ? () => navigate("performance")
+                      : startTour
                 }
               >
-                {section === "explore"
-                  ? "Open the scale lab"
-                  : "Take the guided tour"}
+                {section === "immersive"
+                  ? "Explore CPU → multi-cloud"
+                  : section === "explore"
+                    ? "Open the scale lab"
+                    : "Take the guided tour"}
                 <ArrowUpRight size={17} />
               </button>
             </div>
           </section>
+
+          {section === "immersive" && (
+            <ImmersiveLab
+              initialSystem={immersiveSystem}
+              onSystemChange={setImmersiveSystem}
+              playing={playing}
+              onPlaying={setPlaying}
+              speed={speed}
+              onSpeed={setSpeed}
+              onProject={(name) => {
+                navigate("projects");
+                setProjectFilter("All systems");
+                setSearch(name);
+              }}
+            />
+          )}
 
           {section === "explore" && (
             <div className="stat-strip">
@@ -1012,6 +1044,17 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  <button
+                    className="animate-data-model"
+                    onClick={() => {
+                      setImmersiveSystem(dataModelSystem[selectedData.id]);
+                      navigate("immersive");
+                    }}
+                  >
+                    <Sparkles size={15} />
+                    Explore this data model in 3D
+                    <ArrowUpRight size={15} />
+                  </button>
                 </article>
               </div>
             </>
@@ -1794,6 +1837,17 @@ export default function App() {
                     <p>{p.tradeoff}</p>
                   </div>
                   <SourceLink url={p.source} />
+                  <button
+                    className="dark-button modal-bottom-action"
+                    onClick={() => {
+                      setImmersiveSystem(projectSystem[p.id]);
+                      navigate("immersive");
+                      setOverlay(null);
+                    }}
+                  >
+                    Explore this system family in 3D
+                    <Sparkles size={14} />
+                  </button>
                 </>
               );
             })()}

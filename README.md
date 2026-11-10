@@ -4,6 +4,10 @@ An interactive systems atlas for understanding how data-intensive systems scale 
 
 Explore animated 3D topologies, data movement and network traffic, workload-dependent performance tradeoffs, open-source architectures, contemporary engineering issues, and disaster recovery. The site is a static application; it needs no database, service credentials, or backend.
 
+The home view is an immersive systems lab with **12 distinct architectures and 60 staged operations**: relational, document, key-value, wide-column/LSM, graph, vector, event streaming, time-series, lakehouse, full-text search, object storage, and geospatial systems. Geometry represents the data structure rather than using the same server boxes for every workload.
+
+Select a component or a labeled exchange to inspect it. Play or step through the operation to see active paths, payload transformations, acknowledgements, replica streams, and metadata traffic. Use **Explode** to separate the layout, **Camera tour** or **Plan view** to change perspective, and **Inspect in close-up** for a component view. Each architecture has a fault scenario and an explicit recovery response. The lab also supports fullscreen focus, keyboard system selection, reduced-motion preferences, and a selectable fallback when WebGL is unavailable.
+
 ## Run locally
 
 Use Node.js 22.12 or newer and npm:
@@ -43,6 +47,10 @@ npm run preview -- --host 0.0.0.0
 - Vite builds a static website with relative asset paths, suitable for a GitHub Pages project subdirectory.
 - `src/content.ts` contains the atlas's structured research content and source references.
 - `src/Scene.tsx` contains the 3D visualization.
+- `src/ImmersiveScene.tsx` renders architecture-specific data structures, projected component/exchange labels, stage-linked motion, camera tracking, and fault paths.
+- `src/ImmersiveLab.tsx` coordinates the immersive controls, inspector, and operation timeline.
+- `src/systemModels.ts` describes the 12 executable stories: components, directed exchanges, transformations, correctness boundaries, faults, and references.
+- `docs/immersive-lab.md` explains the visual and interaction contracts.
 - `docs/research.md` documents research scope and primary sources.
 
 Performance figures and capacity estimates are educational models, not measured benchmarks or production sizing guarantees. Hardware, record sizes, skew, indexes, compaction, replication, compression, network contention, and workload shape all change real results. The site distinguishes formulas and assumptions from architectural claims. Its ten hot issues are an editorial selection of important engineering problems, not a measured popularity ranking. Consult the linked primary documentation and benchmark your own workload before choosing a deployment.

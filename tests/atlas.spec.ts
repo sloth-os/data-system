@@ -7,6 +7,10 @@ test.beforeEach(async ({ page }) => {
   runtimeErrors.set(page, errors);
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
+  await page
+    .getByRole("navigation", { name: "Main navigation" })
+    .getByRole("button", { name: "Explore systems", exact: true })
+    .click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
     "Small pieces.",
   );
@@ -124,6 +128,7 @@ test("offers selectable topology nodes when WebGL is unavailable", async ({
     });
   });
   await page.reload();
+  await navigate(page, "Explore systems");
   await expect(
     page.getByText("3D rendering is unavailable in this browser."),
   ).toBeVisible();

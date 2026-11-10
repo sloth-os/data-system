@@ -1054,4 +1054,24 @@ export const sources = [
     url: "https://trino.io/docs/current/overview/concepts.html",
     note: "Coordinator/worker roles, stages, tasks, splits, operators, and connectors; checked via official source repository.",
   },
+  {
+    title: "Neo4j — Cypher documentation source",
+    url: "https://github.com/neo4j/docs-cypher",
+    note: "Primary graph-pattern and traversal documentation for the immersive graph story; the documentation frontend returned HTTP 403 in this environment.",
+  },
+  {
+    title: "Apache Flink — Event time",
+    url: "https://nightlies.apache.org/flink/flink-docs-stable/docs/concepts/time/",
+    note: "Event time, watermarks and late records; used in the streaming and time-series animations.",
+  },
+  {
+    title: "Amazon S3 — Multipart uploads",
+    url: "https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html",
+    note: "Logical upload parts, completion, retries and integrity. The animation does not claim to depict internal physical storage placement.",
+  },
+  {
+    title: "PostGIS — Spatial indexing",
+    url: "https://postgis.net/workshops/postgis-intro/indexing.html",
+    note: "Bounding-box candidate pruning followed by exact predicates. The worked SQL example requires the PostGIS extension.",
+  },
 ];

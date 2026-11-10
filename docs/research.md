@@ -285,3 +285,40 @@ states strong consistency for the documented object operations. That does **not*
 replace Iceberg’s need to atomically publish multi-file table metadata, nor does
 it make cross-region replication synchronous. S3-compatible services can have
 different guarantees and must be evaluated separately.
+
+## Immersive architecture stories
+
+The new default lab turns the research into 12 logical component graphs and 60
+operation stages. Each stage describes active components, directed exchanges,
+the data's input/output representation, a correctness boundary and a pressure
+point. These are executable teaching stories, not production traces.
+
+Additional references checked for these stories:
+
+- [Neo4j's official Cypher documentation source](https://github.com/neo4j/docs-cypher)
+  supports graph-pattern and traversal explanations. The public documentation
+  frontend returned HTTP 403 from the environment, so the source link is used.
+- [Flink event-time concepts](https://nightlies.apache.org/flink/flink-docs-stable/docs/concepts/time/)
+  ground the distinction between event time, arrival order, watermarks and late
+  data in the streaming and time-series stories.
+- [S3 multipart uploads](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html)
+  ground the logical part/upload/complete operation. Multipart parts are not
+  represented as a provider's internal disk stripes. ETags are not universally
+  full-object MD5 checksums; use the documented integrity mechanisms.
+- [PostGIS spatial indexing](https://postgis.net/workshops/postgis-intro/indexing.html)
+  grounds bounding-box candidate pruning followed by exact geometry tests.
+  The ST_Intersects example requires PostGIS rather than PostgreSQL core alone.
+
+The 3D graph has logical rather than physical placement semantics. In particular,
+an index, table and WAL can reside in one process; search postings are a logical
+index artifact rather than a mandatory separate global server. The graph
+partition crossing is a general distributed-graph example, not a claim that
+every Neo4j deployment transparently shards a traversal. The vector cloud is a
+projection rather than a faithful map of a high-dimensional embedding space.
+LSM flush and compaction are background stages after the illustrated write's
+acknowledgement, not prerequisites for every acknowledged write.
+
+The animation clock, particle counts, camera distance and exploded spacing have
+no benchmark meaning. The existing numeric capacity lab keeps its separate,
+explicit scan-and-transfer assumptions. See [immersive-lab.md](immersive-lab.md)
+for the complete visual contract and model coverage.

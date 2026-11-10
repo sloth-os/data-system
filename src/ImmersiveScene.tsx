@@ -3,10 +3,16 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { placeLabels } from "./labelLayout";
 import type { LabelAnchor } from "./labelLayout";
+import { createWorldContext } from "./worldContext";
+import type { WorldState } from "./worldContext";
 import type { Glyph, SystemModel, SystemRoute } from "./systemModels";
 
 export type CameraMode = "orbit" | "follow" | "top";
 interface Props {
+  scale: WorldState["scale"];
+  load: WorldState["load"];
+  issue?: string;
+  recovery?: WorldState["recovery"];
   model: SystemModel;
   phase: number;
   progress: number;
@@ -601,6 +607,11 @@ function glyph(kind: Glyph, color: string): GlyphObject {
 }
 
 export default function ImmersiveScene(props: Props) {
+  const cameraPose = useRef<{
+    position: THREE.Vector3;
+    target: THREE.Vector3;
+    reset: number;
+  } | null>(null);
   const host = useRef<HTMLDivElement>(null);
   const annotations = useRef<Record<string, HTMLButtonElement | null>>({});
   const flowLabels = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -642,9 +653,12 @@ export default function ImmersiveScene(props: Props) {
     scene.fog = new THREE.FogExp2("#0c171c", 0.014);
     const camera = new THREE.PerspectiveCamera(43, 1, 0.1, 130);
     const overview = new THREE.Vector3(10.5, 13, 19);
-    camera.position.copy(overview);
+    const previousPose =
+      cameraPose.current?.reset === props.resetKey ? cameraPose.current : null;
+    camera.position.copy(previousPose?.position || overview);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 1, 0);
+    if (previousPose) controls.target.copy(previousPose.target);
     controls.enableDamping = true;
     controls.dampingFactor = 0.065;
     controls.minDistance = 8;
@@ -799,6 +813,7 @@ export default function ImmersiveScene(props: Props) {
       });
       return { def, index, mat, line, curve, particles, particleMat };
     });
+    const context = createWorldContext(scene, nodes, props.model.accent);
     let width = 0,
       height = 0,
       inView = true,
@@ -928,7 +943,7 @@ export default function ImmersiveScene(props: Props) {
         lastInteraction = -10000;
       previousCameraMode = state.cameraMode;
       previousSelection = state.selected;
-      const key = `${state.phase}:${state.selected}:${state.playing}:${state.exploded}:${state.annotations}:${state.traffic}:${state.fault}:${state.cameraMode}:${state.progress}`;
+      const key = `${state.phase}:${state.selected}:${state.playing}:${state.exploded}:${state.annotations}:${state.traffic}:${state.fault}:${state.cameraMode}:${state.progress}:${state.scale}:${state.issue}:${JSON.stringify(state.load)}:${state.recovery?.kind}:${state.recovery?.step}`;
       if (key !== prevKey) {
         dirty = true;
         prevKey = key;
@@ -952,7 +967,10 @@ export default function ImmersiveScene(props: Props) {
         node.root.scale.setScalar(appear);
         const active = phase.active.includes(node.def.id),
           selected = state.selected === node.def.id,
-          failed = state.fault && state.model.fault.node === node.def.id;
+          failed =
+            state.fault &&
+            (state.recovery?.kind === "corruption" ||
+              state.model.fault.node === node.def.id);
         node.root.position.set(
           node.def.position[0] * (1 + exploded * 0.17),
           node.def.position[1] - (1 - appear) * 1.2,
@@ -965,7 +983,11 @@ export default function ImmersiveScene(props: Props) {
         node.item.group.rotation.y =
           exploded * (node.def.position[0] > 0 ? -0.12 : 0.12);
         node.item.update(time, active && !failed, state.progress);
-        node.edgeMat.color.set(failed ? "#ff926f" : state.model.accent);
+        node.edgeMat.color.set(
+          failed || (state.issue === "hotspot" && nodeIndex === 0)
+            ? "#ff926f"
+            : state.model.accent,
+        );
         node.edgeMat.opacity =
           selected || hovered === node.def.id ? 1 : active ? 0.75 : 0.14;
         (node.halo.material as THREE.MeshBasicMaterial).color.set(
@@ -998,7 +1020,8 @@ export default function ImmersiveScene(props: Props) {
         const on = activeRoutes.has(routeKey(path.def));
         const blocked =
           state.fault &&
-          (path.def.from === state.model.fault.node ||
+          (state.recovery?.kind === "corruption" ||
+            path.def.from === state.model.fault.node ||
             path.def.to === state.model.fault.node);
         path.curve.v0.copy(a);
         path.curve.v3.copy(b);
@@ -1090,6 +1113,16 @@ export default function ImmersiveScene(props: Props) {
           dirty = true;
         }
       }
+      context.update(
+        {
+          scale: state.scale,
+          load: state.load,
+          issue: state.issue,
+          fault: state.fault,
+          recovery: state.recovery,
+        },
+        time,
+      );
       const targetZoom =
         state.selected && state.cameraMode === "follow"
           ? 1
@@ -1211,6 +1244,11 @@ export default function ImmersiveScene(props: Props) {
     };
     frame = requestAnimationFrame(animate);
     return () => {
+      cameraPose.current = {
+        position: camera.position.clone(),
+        target: controls.target.clone(),
+        reset: props.resetKey,
+      };
       cancelAnimationFrame(frame);
       observer.disconnect();
       visible.disconnect();
@@ -1249,6 +1287,10 @@ export default function ImmersiveScene(props: Props) {
       ref={host}
       className={`fusion-world ${fallback ? "fusion-fallback" : ""}`}
       data-system={props.model.id}
+      data-scale={props.scale}
+      data-issue={props.issue || ""}
+      data-workers={props.load.mode === "up" ? 1 : props.load.nodes}
+      data-recovery={props.recovery?.kind || ""}
       data-phase={props.phase}
       data-exploded={props.exploded}
     >

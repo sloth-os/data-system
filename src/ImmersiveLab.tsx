@@ -2,14 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   Activity,
-  ArrowDown,
   ArrowRight,
   ArrowUpRight,
+  BookOpen,
   Boxes,
   Check,
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Cpu,
   Database,
   Expand,
   Eye,
@@ -37,10 +38,23 @@ import {
 } from "lucide-react";
 import ImmersiveScene from "./ImmersiveScene";
 import type { CameraMode } from "./ImmersiveScene";
-import { findSystem, systemModels } from "./systemModels";
+import WorkspacePanel from "./WorkspacePanel";
+import { findSystem, systemModels, projectSystem } from "./systemModels";
 import type { SystemId, SystemRoute } from "./systemModels";
-import "./immersive.css";
 import { advanceOperation } from "./playback";
+import { capacityModel, formatBytes } from "./model";
+import type { ModelInput } from "./model";
+import { issues, levels, projects, recoveryScenarios } from "./content";
+import type { LevelId } from "./content";
+import {
+  initialLoad,
+  issueContexts,
+  journeyContexts,
+  scaleMode,
+} from "./workspace";
+import type { RecoveryDrill, WorkspaceTool } from "./workspace";
+import "./immersive.css";
+import "./workspace.css";
 
 const icons = {
   relational: Database,
@@ -70,14 +84,35 @@ const packetNames: Record<SystemId, string> = {
   object: "Object part / bytes",
   spatial: "Bounds / geometry",
 };
+const tools = [
+  { id: "story", label: "Inspector", icon: Focus },
+  { id: "scale", label: "Scale", icon: Cpu },
+  { id: "paths", label: "Data paths", icon: Network },
+  { id: "capacity", label: "Capacity", icon: Activity },
+  { id: "projects", label: "Projects", icon: Boxes },
+  { id: "issues", label: "Challenges", icon: Zap },
+  { id: "recovery", label: "Recovery", icon: ShieldCheck },
+  { id: "sources", label: "Sources", icon: BookOpen },
+] as const;
+const titles: Record<WorkspaceTool, string> = {
+  story: "Operation inspector",
+  scale: "Scale context",
+  paths: "Data paths",
+  capacity: "Capacity model",
+  projects: "Project architecture",
+  issues: "Engineering challenges",
+  recovery: "Recovery drill",
+  sources: "Sources & methodology",
+  guide: "Explore this world",
+};
 interface Props {
   playing: boolean;
   onPlaying: (playing: boolean) => void;
   speed: number;
   onSpeed: (speed: number) => void;
-  onProject: (name: string) => void;
-  initialSystem: SystemId;
-  onSystemChange: (id: SystemId) => void;
+  tool: WorkspaceTool;
+  onTool: (tool: WorkspaceTool) => void;
+  toolRequest: number;
 }
 
 export default function ImmersiveLab({
@@ -85,11 +120,11 @@ export default function ImmersiveLab({
   onPlaying,
   speed,
   onSpeed,
-  onProject,
-  initialSystem,
-  onSystemChange,
+  tool,
+  onTool,
+  toolRequest,
 }: Props) {
-  const [system, setSystem] = useState<SystemId>(initialSystem);
+  const [system, setSystem] = useState<SystemId>("relational");
   const [sequence, setSequence] = useState({ index: 0, progress: 0 });
   const [selected, setSelected] = useState<string | null>(null);
   const [flow, setFlow] = useState<SystemRoute | null>(null);
@@ -100,51 +135,83 @@ export default function ImmersiveLab({
   const [cameraMode, setCameraMode] = useState<CameraMode>("orbit");
   const [resetKey, setResetKey] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
-  const [help, setHelp] = useState(false);
   const [status, setStatus] = useState("");
-  const root = useRef<HTMLDivElement>(null);
-  const picker = useRef<(HTMLButtonElement | null)[]>([]);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [scale, setScale] = useState<LevelId>("cluster");
+  const [load, setLoad] = useState<ModelInput>(initialLoad);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [projectCategory, setProjectCategory] = useState("All");
+  const [project, setProject] = useState<string | null>(null);
+  const [issue, setIssue] = useState<string | null>(null);
+  const [drill, setDrill] = useState<RecoveryDrill>({
+    scenario: 2,
+    step: 0,
+    status: "idle",
+  });
+  const root = useRef<HTMLElement>(null),
+    picker = useRef<(HTMLButtonElement | null)[]>([]);
   const model = findSystem(system),
     phase = model.phases[sequence.index];
   const node = selected ? model.nodes.find((n) => n.id === selected) : null;
-  const faultPhase = Math.max(
-    0,
-    model.phases.findIndex((p) => p.active.includes(model.fault.node)),
-  );
+  const locked = drill.status === "running";
+  const faultPhase =
+    locked && recoveryScenarios[drill.scenario].id === "corruption"
+      ? 0
+      : Math.max(
+          0,
+          model.phases.findIndex((p) => p.active.includes(model.fault.node)),
+        );
   const held = fault && sequence.index >= faultPhase;
   const output = held ? "Blocked · no completed output" : phase.after;
+  const effectiveLoad = { ...load, mode: scaleMode(scale) },
+    estimate = capacityModel(effectiveLoad);
+  const scaleTitle = levels.find((l) => l.id === scale)!.title;
+  const activeIssue = issues.find((i) => i.id === issue),
+    scenario = recoveryScenarios[drill.scenario];
+
   useEffect(() => {
     if (!playing) return;
     const timer = window.setInterval(() => {
-      if (document.hidden) return;
-      setSequence((current) =>
-        advanceOperation(
-          current,
-          speed / 140,
-          model.phases.length,
-          fault ? faultPhase : undefined,
-        ),
-      );
+      if (!document.hidden)
+        setSequence((current) =>
+          advanceOperation(
+            current,
+            speed / 140,
+            model.phases.length,
+            fault ? faultPhase : undefined,
+          ),
+        );
     }, 100);
     return () => window.clearInterval(timer);
   }, [playing, speed, system, fault, faultPhase, model.phases.length]);
   useEffect(() => {
-    const onChange = () =>
-      setFullscreen(document.fullscreenElement === root.current);
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
+    const fn = () => setFullscreen(document.fullscreenElement === root.current);
+    document.addEventListener("fullscreenchange", fn);
+    return () => document.removeEventListener("fullscreenchange", fn);
   }, []);
   useEffect(() => {
     setSelected(null);
     setFlow(null);
   }, [sequence.index]);
+  useEffect(() => {
+    if (tool !== "story" || toolRequest > 0) setMobileOpen(true);
+  }, [tool, toolRequest]);
+  function openTool(next: WorkspaceTool) {
+    onTool(next);
+    setMobileOpen(true);
+  }
   function chooseSystem(id: SystemId) {
-    setSystem(id);
-    onSystemChange(id);
-    setSequence({ index: 0, progress: 0 });
-    setSelected(null);
-    setFlow(null);
-    setFault(false);
+    if (locked) return;
+    if (id !== system) {
+      setSystem(id);
+      setProject(null);
+      setSequence({ index: 0, progress: 0 });
+      setSelected(null);
+      setFlow(null);
+      setFault(false);
+      setIssue(null);
+      setDrill((d) => ({ ...d, status: "idle", step: 0 }));
+    }
     setStatus("");
   }
   function go(index: number) {
@@ -158,48 +225,107 @@ export default function ImmersiveLab({
     setSelected(id);
     setFlow(null);
     onPlaying(false);
+    openTool("story");
   }
   function selectFlow(route: SystemRoute) {
     setFlow(route);
     setSelected(null);
     onPlaying(false);
+    openTool("story");
   }
   async function focus() {
     if (document.fullscreenElement) await document.exitFullscreen();
-    else if (root.current?.requestFullscreen)
+    else
       await root.current
-        .requestFullscreen()
+        ?.requestFullscreen?.()
         .catch(() =>
           setStatus(
-            "Fullscreen is unavailable here. You can still orbit and zoom the scene.",
+            "Fullscreen is unavailable here. Orbit and zoom remain available.",
           ),
         );
   }
   function injectFault() {
     if (!fault) {
-      setSequence({
-        index: Math.max(
-          0,
-          model.phases.findIndex((p) => p.active.includes(model.fault.node)),
-        ),
-        progress: 0,
-      });
+      setSequence({ index: faultPhase, progress: 0 });
       setSelected(null);
       setFlow(null);
     }
     setFault(!fault);
   }
+  function chooseJourney(id: keyof typeof journeyContexts) {
+    if (locked) return;
+    chooseSystem(journeyContexts[id].system);
+    setSequence({ index: 0, progress: 0 });
+    setIssue(null);
+    openTool("paths");
+  }
+  function chooseProject(id: string) {
+    if (locked) return;
+    chooseSystem(projectSystem[id]);
+    setProject(id);
+    openTool("projects");
+  }
+  function chooseIssue(id: string | null) {
+    if (locked) return;
+    if (id) {
+      const binding = issueContexts[id];
+      if (binding.system) chooseSystem(binding.system);
+      setScale(binding.scale);
+      setSequence({ index: binding.phase, progress: 0 });
+      setFault(false);
+      setSelected(null);
+      setFlow(null);
+      onPlaying(true);
+    }
+    setIssue(id);
+  }
+  function startDrill() {
+    setIssue(null);
+    setFault(true);
+    setSelected(null);
+    setFlow(null);
+    setSequence({
+      index: scenario.id === "corruption" ? 0 : faultPhase,
+      progress: 0,
+    });
+    setDrill((d) => ({ ...d, status: "running", step: 0 }));
+    setScale(
+      scenario.id === "region" || scenario.id === "petabyte"
+        ? "multicloud"
+        : scenario.id === "corruption"
+          ? "server"
+          : "cluster",
+    );
+    if (scenario.id === "petabyte")
+      setLoad((l) => ({ ...l, records: 1e11, bytesPerRecord: 100000 }));
+  }
+  function nextDrill() {
+    if (drill.step + 1 >= scenario.steps.length) {
+      setDrill((d) => ({
+        ...d,
+        status: "complete",
+        step: scenario.steps.length,
+      }));
+      setFault(false);
+    } else setDrill((d) => ({ ...d, step: d.step + 1 }));
+  }
+  function resetDrill() {
+    setFault(false);
+    setDrill((d) => ({ ...d, status: "idle", step: 0 }));
+  }
+
   return (
     <section
-      className="fusion-lab"
+      ref={root}
+      className="fusion-lab unified-workspace"
       style={{ "--system-accent": model.accent } as CSSProperties}
-      aria-label="Immersive systems lab"
+      aria-label="Immersive systems workspace"
     >
       <div className="fusion-picker-heading">
         <span>
           <span className="fusion-live-dot" /> CHOOSE A DATA SYSTEM
         </span>
-        <span>12 architectures. 60 stages. One explorable world.</span>
+        <span>12 architectures · one continuous workspace</span>
       </div>
       <div
         className="fusion-system-picker"
@@ -211,6 +337,7 @@ export default function ImmersiveLab({
           return (
             <button
               role="tab"
+              disabled={locked}
               tabIndex={system === s.id ? 0 : -1}
               ref={(el) => {
                 picker.current[i] = el;
@@ -245,30 +372,36 @@ export default function ImmersiveLab({
           );
         })}
       </div>
-      <div className="fusion-stage" ref={root}>
+      <div className="fusion-stage">
         <header className="fusion-stage-heading">
           <div>
             <span className="fusion-scene-mark">
               <Network size={20} />
             </span>
             <div>
-              <span className="fusion-kicker">{model.category}</span>
+              <span className="fusion-kicker">
+                {scaleTitle.toUpperCase()} CONTEXT / {model.category}
+              </span>
               <h2>{model.name}</h2>
             </div>
           </div>
           <div className="fusion-stage-header-actions">
             <span className="fusion-model-note">
-              ARCHITECTURAL MODEL
+              ONE SCENE · SHARED CONTEXT
               <br />
               <strong>LOGICAL COMPONENTS · SYNTHETIC DATA</strong>
             </span>
             <button
-              onClick={() => setHelp(!help)}
-              className={help ? "is-active" : ""}
-              aria-label="How to explore the 3D lab"
-              aria-expanded={help}
+              aria-label="How to explore the workspace"
+              onClick={() => openTool("guide")}
             >
-              <Focus size={18} />
+              <BookOpen size={17} />
+            </button>
+            <button
+              aria-label="Open stage inspector"
+              onClick={() => openTool("story")}
+            >
+              <Focus size={17} />
             </button>
             <button
               onClick={focus}
@@ -280,30 +413,25 @@ export default function ImmersiveLab({
             </button>
           </div>
         </header>
-        {help && (
-          <div className="fusion-help">
-            <div>
-              <Move3d size={22} />
-              <strong>Make the architecture your own.</strong>
-              <button aria-label="Close 3D help" onClick={() => setHelp(false)}>
-                <X size={16} />
-              </button>
-            </div>
-            <p>
-              Drag to orbit, scroll or pinch to zoom. Select a labeled component
-              or its 3D object to inspect its role and sample data. Step through
-              the operation, separate the layers, or follow the camera tour.
-            </p>
-            <p>
-              A labeled component is a logical role; several can share one
-              process or host. The bright path is the current stage. Packets
-              show direction and data representation; their speed and count are
-              illustrative. Press Space with the page focused to pause or play.
-              Reduced-motion preferences start the animation paused.
-            </p>
-          </div>
-        )}
         <div className="fusion-stage-grid">
+          <nav className="workspace-toolrail" aria-label="Scene tools">
+            {tools.map((t) => (
+              <button
+                key={t.id}
+                aria-label={`Open ${t.label} tool`}
+                aria-pressed={tool === t.id}
+                data-active={
+                  (t.id === "issues" && !!issue) ||
+                  (t.id === "recovery" && locked)
+                }
+                onClick={() => openTool(t.id)}
+                title={t.label}
+              >
+                <t.icon size={18} />
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </nav>
           <div className="fusion-viewport">
             <ImmersiveScene
               model={model}
@@ -320,7 +448,43 @@ export default function ImmersiveLab({
               fault={fault}
               cameraMode={cameraMode}
               resetKey={resetKey}
+              scale={scale}
+              load={effectiveLoad}
+              issue={issue || undefined}
+              recovery={
+                locked
+                  ? {
+                      kind: scenario.id,
+                      step: drill.step,
+                      steps: scenario.steps.length,
+                    }
+                  : undefined
+              }
             />
+            <div
+              className="workspace-world-metrics"
+              aria-label="Modeled workload"
+            >
+              <span>MODELED · {scaleTitle.toUpperCase()}</span>
+              <button onClick={() => openTool("capacity")}>
+                <strong>{formatBytes(estimate.rawBytes)}</strong> raw <i />
+                {estimate.workers} workers <i />
+                RF {load.replicas}
+              </button>
+            </div>
+            {issue && (
+              <button
+                className="workspace-active-issue"
+                onClick={() => openTool("issues")}
+              >
+                CHALLENGE · {activeIssue?.title}
+              </button>
+            )}
+            {locked && (
+              <div className="workspace-active-drill">
+                RECOVERY RUNBOOK · {drill.step + 1} / {scenario.steps.length}
+              </div>
+            )}
             <div className="fusion-corner top-left">
               <span
                 className={fault ? "fusion-fault-chip" : "fusion-state-chip"}
@@ -333,7 +497,7 @@ export default function ImmersiveLab({
                     : "PAUSED · EXPLORE FREELY"}
               </span>
               <span className="fusion-operation-number">
-                STAGE <b>{String(sequence.index + 1).padStart(2, "0")}</b> / 05
+                STEP <b>{String(sequence.index + 1).padStart(2, "0")}</b> / 05
               </span>
             </div>
             <div className="fusion-corner bottom-left">
@@ -366,132 +530,193 @@ export default function ImmersiveLab({
             </div>
           </div>
           <aside
-            className={`fusion-inspector ${fault ? "has-fault" : ""}`}
-            aria-label="Live stage inspector"
+            className={`fusion-inspector workspace-inspector ${mobileOpen ? "mobile-open" : "mobile-closed"}`}
+            aria-label="Contextual scene inspector"
           >
-            <div className="fusion-inspector-top">
-              <span>
-                {node
-                  ? "COMPONENT INSPECTOR"
-                  : flow
-                    ? "EXCHANGE INSPECTOR"
-                    : "FOLLOW THE OPERATION"}
-              </span>
-              {node || flow ? (
-                <button
-                  aria-label="Return to stage explanation"
-                  onClick={() => {
-                    setSelected(null);
-                    setFlow(null);
-                  }}
-                >
-                  <X size={14} />
-                </button>
-              ) : (
-                <span className="fusion-phase-count">
-                  {sequence.index + 1} / 5
-                </span>
-              )}
+            <div className="workspace-inspector-heading">
+              <span>{titles[tool]}</span>
+              <button
+                className="workspace-mobile-close"
+                aria-label="Close scene inspector"
+                onClick={() => setMobileOpen(false)}
+              >
+                <X size={17} />
+              </button>
             </div>
-            <select
-              className="fusion-component-select"
-              aria-label="Inspect architecture component"
-              value={selected || ""}
-              onChange={(e) => selectNode(e.target.value || "")}
-            >
-              <option value="">Choose a component to inspect…</option>
-              {model.nodes.map((n) => (
-                <option key={n.id} value={n.id}>
-                  {n.label}
-                </option>
-              ))}
-            </select>
-            <div className="fusion-inspector-story" aria-live="polite">
-              <span className="fusion-inspector-kind">
-                {node
-                  ? node.role
-                  : flow
-                    ? `${flow.kind.toUpperCase()} PATH`
-                    : phase.title.toUpperCase()}
-              </span>
-              <h3>{node ? node.label : flow ? flow.label : phase.action}</h3>
-              <p>{node ? node.detail : phase.detail}</p>
-              {node && (
-                <button
-                  className="fusion-closeup"
-                  onClick={() => {
-                    setCameraMode("follow");
-                    root.current
-                      ?.querySelector(".fusion-viewport")
-                      ?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  }}
-                >
-                  <Focus size={13} />
-                  Inspect in close-up
-                  <ArrowUpRight size={12} />
-                </button>
-              )}
-            </div>
-            <div className="fusion-payload">
-              <div>
-                <FileJson size={12} />
-                <span>
-                  {node
-                    ? "EXAMPLE AT THIS COMPONENT"
-                    : flow
-                      ? "SOURCE → DESTINATION"
-                      : "OUTPUT REPRESENTATION"}
-                </span>
-                <span className="fusion-code-dot" />
-              </div>
-              <pre>
-                <code>
-                  {node
-                    ? node.sample
-                    : flow
-                      ? `${model.nodes.find((n) => n.id === flow.from)!.label}\n    ↓ ${flow.kind}\n${model.nodes.find((n) => n.id === flow.to)!.label}`
-                      : output}
-                </code>
-              </pre>
-            </div>
-            <div className="fusion-guarantee">
-              <ShieldCheck size={15} />
-              <div>
-                <span>THE CORRECTNESS BOUNDARY</span>
-                <p>{phase.invariant}</p>
-              </div>
-            </div>
-            {fault ? (
-              <div className="fusion-fault-detail" role="status">
-                <span>
-                  <Zap size={13} />
-                  {model.fault.label}
-                </span>
-                <p>{model.fault.effect}</p>
-                <strong>Recovery response</strong>
-                <p>{model.fault.response}</p>
-                <p className="fusion-hold-note">
-                  This drill holds at the unresolved dependency. Restore the
-                  healthy path to continue; no downstream success is assumed.
-                </p>
-              </div>
-            ) : (
-              <div className="fusion-pressure">
-                <Activity size={14} />
-                <div>
-                  <span>WATCH THE BOTTLENECK</span>
-                  <p>{phase.pressure}</p>
+            <div className="workspace-inspector-content">
+              {tool === "story" ? (
+                <div className="workspace-story">
+                  <select
+                    className="fusion-component-select"
+                    aria-label="Inspect architecture component"
+                    value={selected || ""}
+                    onChange={(e) => selectNode(e.target.value || "")}
+                  >
+                    <option value="">Choose a component to inspect…</option>
+                    {model.nodes.map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {n.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="fusion-inspector-story" aria-live="polite">
+                    <span className="fusion-inspector-kind">
+                      {node
+                        ? node.role
+                        : flow
+                          ? `${flow.kind.toUpperCase()} PATH`
+                          : phase.title.toUpperCase()}
+                    </span>
+                    <h3>
+                      {node ? node.label : flow ? flow.label : phase.action}
+                    </h3>
+                    <p>{node ? node.detail : phase.detail}</p>
+                    {node && (
+                      <button
+                        className="fusion-closeup"
+                        onClick={() => {
+                          setCameraMode("follow");
+                        }}
+                      >
+                        <Focus size={13} />
+                        Inspect in close-up
+                        <ArrowUpRight size={12} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="fusion-payload">
+                    <div>
+                      <FileJson size={12} />
+                      <span>
+                        {node
+                          ? "EXAMPLE AT THIS COMPONENT"
+                          : flow
+                            ? "SOURCE → DESTINATION"
+                            : "OUTPUT REPRESENTATION"}
+                      </span>
+                      <span className="fusion-code-dot" />
+                    </div>
+                    <pre>
+                      <code>
+                        {node
+                          ? node.sample
+                          : flow
+                            ? `${model.nodes.find((n) => n.id === flow.from)!.label}\n    ↓ ${flow.kind}\n${model.nodes.find((n) => n.id === flow.to)!.label}`
+                            : output}
+                      </code>
+                    </pre>
+                  </div>
+                  <div className="fusion-guarantee">
+                    <ShieldCheck size={15} />
+                    <div>
+                      <span>THE CORRECTNESS BOUNDARY</span>
+                      <p>{phase.invariant}</p>
+                    </div>
+                  </div>
+                  {fault ? (
+                    <div className="fusion-fault-detail" role="status">
+                      <span>
+                        <Zap size={13} />
+                        {model.fault.label}
+                      </span>
+                      <p>{model.fault.effect}</p>
+                      <strong>Recovery response</strong>
+                      <p>{model.fault.response}</p>
+                      <p className="fusion-hold-note">
+                        This drill holds at the unresolved dependency. Restore
+                        the healthy path to continue; no downstream success is
+                        assumed.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="fusion-pressure">
+                      <Activity size={14} />
+                      <div>
+                        <span>WATCH THE BOTTLENECK</span>
+                        <p>{phase.pressure}</p>
+                      </div>
+                    </div>
+                  )}
+                  <button
+                    className={`fusion-fault-button ${fault ? "active" : ""}`}
+                    onClick={locked ? () => openTool("recovery") : injectFault}
+                  >
+                    {fault ? <RotateCcw size={14} /> : <Zap size={14} />}
+                    {locked
+                      ? "Continue the recovery drill"
+                      : fault
+                        ? "Restore the healthy path"
+                        : model.fault.label}
+                    <span>{fault ? "RESET" : "WHAT IF?"}</span>
+                  </button>
+
+                  <details>
+                    <summary>Core algorithm & scaling</summary>
+                    <h4>{model.algorithm}</h4>
+                    <p>{model.scaling}</p>
+                    <div className="fusion-project-links">
+                      {model.projects.map((name) => (
+                        <button
+                          key={name}
+                          onClick={() => {
+                            const match = projects.find((p) => p.name === name);
+                            if (match) chooseProject(match.id);
+                          }}
+                        >
+                          {name}
+                          <ArrowUpRight size={12} />
+                        </button>
+                      ))}
+                    </div>
+                    <a
+                      className="workspace-link"
+                      href={model.reference.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Primary documentation
+                      <ArrowUpRight size={12} />
+                    </a>
+                  </details>
                 </div>
-              </div>
-            )}
-            <button
-              className={`fusion-fault-button ${fault ? "active" : ""}`}
-              onClick={injectFault}
-            >
-              {fault ? <RotateCcw size={14} /> : <Zap size={14} />}
-              {fault ? "Restore the healthy path" : model.fault.label}
-              <span>{fault ? "RESET" : "WHAT IF?"}</span>
-            </button>
+              ) : (
+                <WorkspacePanel
+                  search={projectSearch}
+                  onSearch={setProjectSearch}
+                  category={projectCategory}
+                  onCategory={setProjectCategory}
+                  blockedAt={fault ? faultPhase : null}
+                  tool={tool}
+                  model={model}
+                  phase={sequence.index}
+                  scale={scale}
+                  onScale={(s) => {
+                    if (!locked) setScale(s);
+                  }}
+                  load={effectiveLoad}
+                  onLoad={(patch) => {
+                    if (!locked) setLoad((l) => ({ ...l, ...patch }));
+                  }}
+                  onPhase={go}
+                  onJourney={chooseJourney}
+                  project={project}
+                  onProject={chooseProject}
+                  issue={issue}
+                  onIssue={chooseIssue}
+                  recovery={drill}
+                  onScenario={(scenario) => {
+                    if (!locked) {
+                      setDrill({ scenario, status: "idle", step: 0 });
+                      setFault(false);
+                    }
+                  }}
+                  onDrillStart={startDrill}
+                  onDrillNext={nextDrill}
+                  onDrillReset={resetDrill}
+                  onTool={openTool}
+                />
+              )}
+            </div>
           </aside>
         </div>
         <div className="fusion-control-deck">
@@ -542,6 +767,7 @@ export default function ImmersiveLab({
             </select>
             <button
               aria-label="Replay operation"
+              disabled={locked}
               onClick={() => {
                 setSequence({ index: 0, progress: 0 });
                 setSelected(null);
@@ -656,70 +882,14 @@ export default function ImmersiveLab({
             {status}
           </p>
         )}
-      </div>
-      <div className="fusion-operation-card">
-        <span className="fusion-kicker">THE WORKED EXAMPLE</span>
-        <code>{model.operation}</code>
-        <span>
-          Trace the operation above. Select any stage or component to go deeper.
-        </span>
-      </div>
-      <div className="fusion-notes-grid">
-        <article>
-          <span className="fusion-note-icon">
-            <GitFork size={19} />
-          </span>
-          <span className="fusion-kicker">CORE MECHANISM</span>
-          <h3>{model.algorithm}</h3>
-          <p>{model.description}</p>
-          <a href={model.reference.url} target="_blank" rel="noreferrer">
-            Primary documentation
-            <ArrowUpRight size={15} />
-          </a>
-        </article>
-        <article>
-          <span className="fusion-note-icon">
-            <ArrowDown size={19} />
-          </span>
-          <span className="fusion-kicker">WHEN THE DATA GROWS</span>
-          <h3>Change the limit, preserve the contract.</h3>
-          <p>{model.scaling}</p>
-          <div className="fusion-project-links">
-            {model.projects.map((name) => (
-              <button key={name} onClick={() => onProject(name)}>
-                {name}
-                <ArrowUpRight size={13} />
-              </button>
-            ))}
-          </div>
-        </article>
-        <article>
-          <span className="fusion-note-icon">
-            <Move3d size={19} />
-          </span>
-          <span className="fusion-kicker">READ THE VISUAL LANGUAGE</span>
-          <h3>Shape is the data. Motion is the process.</h3>
-          <p>
-            Tables expose rows, files expose columns, graphs expand neighbors,
-            logs preserve partition order, and vector clouds show candidate
-            search. The scene is a teaching projection—not a running deployment.
-          </p>
-          <button
-            className="fusion-guide-link"
-            onClick={() => {
-              setExploded(true);
-              setCameraMode("follow");
-              onPlaying(true);
-              root.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              });
-            }}
-          >
-            Separate the layers & follow
-            <ArrowRight size={15} />
+        <div className="workspace-operation">
+          <span>WORKED EXAMPLE</span>
+          <code>{model.operation}</code>
+          <button onClick={() => openTool("paths")}>
+            Follow the operation
+            <ArrowRight size={13} />
           </button>
-        </article>
+        </div>
       </div>
     </section>
   );

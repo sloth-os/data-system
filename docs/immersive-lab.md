@@ -1,97 +1,93 @@
-# The immersive systems lab
+# Immersive workspace interaction contract
 
-The lab makes the explanation part of the visualization. The components are
-logical roles, not a fleet inventory: an index, a table, and a log may share one
-process and one physical host. Space in the scene separates responsibilities;
-it does not assert geographic placement, network distance or measured latency.
+The workbench combines one renderer, twelve logical architecture graphs and
+contextual tools. A B-tree, table, log, metadata catalog or replica is a logical
+role, not necessarily a separate host. Envelopes and spatial separation explain
+responsibility and scale without asserting a provider's deployment topology.
 
-## Architecture coverage
+## Operation stories
 
-| System | Visible structures | Worked operation |
-| --- | --- | --- |
-| Relational | B-tree levels, row versions, append log, standby, data pages | Index seek → new version → durable WAL → synchronous acknowledgement → commit/checkpoint |
-| Document | Nested documents, routing metadata, selected and skipped shards, replica set | Document request → ownership lookup → targeted shard → indexed update → requested acknowledgement |
-| Key-value | Hash-slot hub, memory cells, backing row store, asynchronous replica | Route → cache probe → application-owned miss fetch → refill with TTL → async propagation |
-| Wide-column/LSM | Memtable rows, append log, SSTable run levels, replica owners | Partition → log → buffer and acknowledge → flush → background compaction |
-| Graph | Start-node index, adjacency neighborhoods, cross-partition bridge, result paths | Anchor → expand → exchange frontier → filter → return |
-| Vector | Query embedding, metadata predicate, projected point cloud/index layers, candidate merge | Encode → filter → approximate navigation → rerank → top-k |
-| Event streaming | Ordered log lanes, keyed event-time buckets, checkpoint objects, sink rows | Append → consume → window → snapshot → compatible sink commit |
-| Time-series | Ingest lanes, entity/time buckets, compressed columns, mergeable rollup state | Collect → bucket → encode → roll up → range query |
-| Lakehouse | Snapshot metadata tree, columnar files, scan tasks, exchange hub, final rows | Resolve → prune → local aggregation → shuffle → merge |
-| Full-text search | Query document, token/posting lists, shard-local candidates, merge table | Analyze → postings lookup → shard scoring → gather → response |
-| Object storage | Logical upload parts, object/version metadata, binary blocks, range reader | Initiate → transfer → checksum/complete → catalog → range read |
-| Geospatial | Bounding-index tree, spatial tiles, candidate geometry, exact-test viewport | Normalize → prune bounds → route → exact predicate → return |
+Each family defines five stages: highlighted components, directed exchanges,
+input/output representations, a correctness boundary and a bottleneck.
 
-The vector cloud is a teaching projection; a 3D distance is not the distance in
-a real 768-dimensional embedding. The spatial SQL example requires PostGIS.
-Object blocks are logical multipart-upload units, not a representation of
-undocumented provider erasure coding or physical placement. The graph's remote
-subgraph is a general distributed-graph example, not a claim that every named
-graph project automatically shards a single traversal.
+| Family | Operation |
+| --- | --- |
+| Relational | Index seek → row version → WAL → synchronous ACK → commit/checkpoint |
+| Document | Describe → route → target shard → indexed update → acknowledgement |
+| Key-value | Hash → memory probe → application-owned miss fetch → refill → async copy |
+| Wide-column/LSM | Partition → log → buffer/ACK → flush → background compaction |
+| Graph | Anchor → expand → remote frontier → filter → bounded result |
+| Vector | Encode → metadata filter → approximate navigation → rerank → top-k |
+| Streaming | Append → consume → keyed window → checkpoint → compatible sink commit |
+| Time-series | Collect → bucket → compress → mergeable rollup → range query |
+| Lakehouse | Resolve snapshot → prune → scan/aggregate → shuffle → merge |
+| Search | Analyze → postings → shard scoring → gather → response |
+| Object | Initiate multipart → transfer → checksum/complete → metadata → range read |
+| Spatial | Normalize → bounds pruning → candidate routing → exact test → return |
 
-## Synchronization and motion
+The vector cloud is a projection, not a faithful map of high-dimensional
+similarity. The spatial SQL example requires PostGIS. Object parts are logical
+upload units, not undocumented physical stripes. The graph partition crossing
+is a general pattern, not a claim that every graph product shards a traversal.
 
-The selected system defines a graph of components and five operation stages.
-Each stage specifies highlighted components, directed routes, the input/output
-representation, a correctness boundary, and a bottleneck. The timeline,
-inspector, projected labels and active 3D paths all read the same stage.
+## Tool continuity
 
-Playback advances an illustrative stage in 14 seconds at 1× speed. This timing
-has no relationship to request latency, throughput or a product benchmark.
-Particles encode direction and representation. Pale return pulses indicate
-acknowledgements; blue marks replica streams; purple marks metadata/checkpoints.
-The selected architecture's accent marks the data path.
+Opening a tool leaves the canvas, stage and camera intact. Scale, workload,
+project selection, search and challenge state belong to the lab rather than to
+independent tool pages. Component or exchange selection pauses playback and
+opens the operation inspector. A standard component selector is also provided.
 
-Geometry reinforces the mechanism: B-tree levels highlight a seek path; graph
-vertices reveal a frontier; log tiles move along ordered lanes; window clocks
-advance; vector points rotate within an index projection; spatial bounds move
-over candidate tiles. An entry sequence and layer separation use eased motion.
+- **Scale** reveals CPU/cache, host, cluster and regional envelopes around the
+  current operation. It also selects the matching capacity-model boundary.
+- **Data paths** provides three journey presets and the current family's stage
+  controls, plus transport, exchange and representation explanations.
+- **Capacity** exposes record count/size, compression, replicas, workers, network
+  and skew, with live results and a scale-up/out comparison. World markers and
+  the storage stack reflect the same settings.
+- **Projects** searches and filters sixteen profiles; a selection switches to
+  the matching family in place. Search and selected references survive passive
+  tool changes.
+- **Challenges** adds one of ten mechanisms to this same scene. Selecting a
+  challenge can choose a relevant family, scale and operation stage. Clearing
+  it preserves those choices.
+- **Recovery** runs five failure/restore playbooks over the same operation and
+  dependency fault. Architecture/workload changes and replay are locked while
+  a drill is active. Cancel/reset is explicit. Only confirmed completion restores
+  the healthy dependency; downstream successes cannot be animated prematurely.
+- **Sources** keeps evidence and assumptions in the inspector.
 
-## Interaction contract
+The camera can orbit freely, track the current stage or selected component,
+or use a plan view. User camera interaction temporarily takes priority over
+tracking. Layer separation changes spacing while retaining logical connections.
+Native fullscreen includes the architecture picker and all contextual tools.
 
-- Choosing a system resets its stage, selection and injected fault while
-  preserving the user's playback, speed and view preferences.
-- Selecting a stage or component pauses playback so the explanation stays
-  stable while it is read. The inspector can also be reached through a standard
-  component selector, which is useful on touch devices.
-- Both component labels and active exchange labels are real keyboard-focusable
-  buttons. Raycasting also supports the 3D geometry and active paths.
-- The system picker supports arrow keys, Home and End with a roving tab stop.
-- The camera can orbit freely, track the active operation or selected component,
-  or move to a top-down plan view. A manual camera interaction temporarily takes
-  priority over tracking.
-- Layer separation changes spacing without changing logical connections.
-- Fault injection moves to a relevant stage, marks the affected dependency,
-  stalls its illustrative packets, and explains a system-specific recovery
-  response. Automatic progress and downstream stage controls are held at the
-  dependency until it is restored, so a required-but-unavailable replica cannot
-  be followed by a successful commit. This is a conservative drill; degraded
-  or partial-result policies are described, not silently performed. It never
-  changes actual infrastructure.
-- Replay clears the fault and restarts the operation. Restoring the healthy path
-  removes the fault without changing the chosen data system.
+## Timing and failure semantics
 
-## Rendering and accessibility
+At 1×, the teaching clock advances a healthy stage in 14 seconds. This has no
+relationship to query latency, throughput or benchmark performance. Data paths,
+replica streams, metadata and ACKs have distinct visual encodings. The active
+stage drives the timeline, annotations, inspector and geometry together.
 
-Three.js renders procedural geometry, canvas-textured data panels and curved
-connections. HTML labels are projected from 3D coordinates to preserve readable
-text and accessible controls. Collision-aware screen-space placement separates
-labels, with SVG leader lines retaining their connection to the 3D component or
-exchange. Small viewports can use a compact shelf layout rather than overlapping
-annotations. The renderer caps device pixel ratio, observes
-container size and visibility, skips unnecessary paused renders, and disposes
-geometry, textures, materials, controls and its WebGL context on replacement.
+Faults hold at the required dependency and mark uncompleted output. A recovery
+runbook step is a simulated verification milestone, not a physical restore
+percentage. Degraded/partial-result alternatives are explained rather than
+silently performed. Capacity estimates do not change the story's durability
+policy or include actual failure-related capacity loss.
 
-Reduced-motion preferences start the lab paused and skip the entry sequence.
-The native fullscreen view is optional. If WebGL cannot initialize, component
-cards, the inspector, the operation timeline and fault explanations remain
-available. On narrow screens the inspector stacks below the scene and exposes
-full-sized component selection instead of relying on small spatial labels.
+## Rendering, access and checks
 
-## Verification
+The one renderer owns procedural geometry, textured data panels, paths,
+deployment envelopes and challenge effects. Labels are projected into HTML and
+separated in screen space, with SVG leaders. Small viewports can use shelves
+rather than overlapping labels. DPR is capped, paused renders are skipped,
+visibility/size are observed, and resources/context are disposed when replaced.
 
-Model tests check graph referential integrity, active route endpoints, fault
-reachability, project links and substantive content. Browser tests exercise all
-60 stages in real WebGL, inspect both components and exchanges, compare rendered
-frames during playback, pause and advance the operation, inject faults for all
-12 systems, use the fallback, and check keyboard/touch layouts.
+On mobile, tools open as closeable sheets over the world. Reduced-motion
+preferences begin paused and skip entry motion. When WebGL is unavailable,
+selectable component cards, capacity calculations, tool content and recovery
+controls remain usable.
+
+Tests cover canvas/camera continuity, all sixty stages, four scale lenses,
+capacity invariants, sixteen project profiles, ten challenge bindings, all five
+recovery playbooks, motion/pause, keyboard controls, fullscreen, fallback and
+mobile sheet behavior.
